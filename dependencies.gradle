@@ -92,4 +92,6 @@ dependencies {
     minecraftLibrary(runtimeOnly("org.anarres:jcpp:1.4.14"))
     runtimeOnly fg.deobf("maven.modrinth:embeddium:${embeddium_version}") {transitive  = false}
     runtimeOnly fg.deobf("maven.modrinth:oculus:${oculus_version}") {transitive = true}
+    
+    implementation("curse.maven:mana-and-artifice-406360:6376261")
 }
