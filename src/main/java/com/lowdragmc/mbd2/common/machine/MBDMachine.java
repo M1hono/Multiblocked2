@@ -39,6 +39,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.TickTask;
 import net.minecraft.server.level.ServerLevel;
@@ -71,6 +72,7 @@ import org.joml.Vector3f;
 
 import javax.annotation.Nonnull;
 import java.util.*;
+import java.util.List;
 
 @Getter
 public class MBDMachine implements IMachine, IEnhancedManaged, ICapabilityProvider, IUIHolder {
@@ -90,6 +92,11 @@ public class MBDMachine implements IMachine, IEnhancedManaged, ICapabilityProvid
     private final MBDMachineDefinition definition;
     private final IMachineBlockEntity machineHolder;
 
+    @Getter
+    @Setter
+    @Persisted
+    @DescSynced
+    private Component customName = null;
     @Persisted
     @DescSynced
     @UpdateListener(methodName = "updateCustomData")
@@ -146,6 +153,14 @@ public class MBDMachine implements IMachine, IEnhancedManaged, ICapabilityProvid
         recipeLogic = createRecipeLogic(args);
         // additional traits initialization
         loadAdditionalTraits();
+    }
+
+    @Override
+    public void onChunkUnloaded() {
+        IMachine.super.onChunkUnloaded();
+        for (ITrait additionalTrait : additionalTraits) {
+            additionalTrait.onChunkUnloaded();
+        }
     }
 
     @Override
@@ -573,6 +588,16 @@ public class MBDMachine implements IMachine, IEnhancedManaged, ICapabilityProvid
     }
 
     @Override
+    public boolean consumeInputsAfterWorking(MBDRecipe recipe) {
+        if (getDefinition().recipeLogicSettings().consumeInputsAfterWorking()) {
+            var event = new MachineAfterRecipeWorkingEvent(this, recipe).postCustomEvent();
+            MinecraftForge.EVENT_BUS.post(event);
+            return !event.isCanceled();
+        }
+        return false;
+    }
+
+    @Override
     public boolean beforeWorking(MBDRecipe recipe) {
         var event = new MachineBeforeRecipeWorkingEvent(this, recipe);
         MinecraftForge.EVENT_BUS.post(event.postCustomEvent());
@@ -602,6 +627,18 @@ public class MBDMachine implements IMachine, IEnhancedManaged, ICapabilityProvid
     public void afterWorking() {
         MinecraftForge.EVENT_BUS.post(new MachineAfterRecipeWorkingEvent(this, recipeLogic.getLastRecipe()).postCustomEvent());
         IMachine.super.afterWorking();
+    }
+
+    @Override
+    public void onConsumeInputsAfterWorking() {
+        MinecraftForge.EVENT_BUS.post(new MachineOnConsumeInputsAfterWorkingEvent(this, recipeLogic.getLastRecipe()).postCustomEvent());
+        IMachine.super.onConsumeInputsAfterWorking();
+    }
+
+    @Override
+    public void onRecipeFinish() {
+        MinecraftForge.EVENT_BUS.post(new MachineOnRecipeFinishEvent(this, recipeLogic.getLastRecipe()).postCustomEvent());
+        IMachine.super.onRecipeFinish();
     }
 
     /**
@@ -644,6 +681,9 @@ public class MBDMachine implements IMachine, IEnhancedManaged, ICapabilityProvid
      * it won't be called when machine added by {@link Level#setBlock(BlockPos, BlockState, int, int)}
      */
     public void onMachinePlaced(LivingEntity player, ItemStack stack) {
+        if (stack.hasCustomHoverName()) {
+            setCustomName(stack.getHoverName());
+        }
         MinecraftForge.EVENT_BUS.post(new MachinePlacedEvent(this, player, stack).postCustomEvent());
     }
 
@@ -747,7 +787,11 @@ public class MBDMachine implements IMachine, IEnhancedManaged, ICapabilityProvid
      * Get the drop item when the machine is broken.
      */
     public ItemStack getDropItem() {
-        return getDefinition().asStack();
+        var item = getDefinition().asStack();
+        if (customName != null) {
+            item.setHoverName(customName);
+        }
+        return item;
     }
 
     /**
@@ -759,6 +803,9 @@ public class MBDMachine implements IMachine, IEnhancedManaged, ICapabilityProvid
             if (!drop.isEmpty()) {
                 drops.add(drop);
             }
+        }
+        for (ITrait trait : getAdditionalTraits()) {
+            trait.onMachineDrop(entity, drops);
         }
         MinecraftForge.EVENT_BUS.post(new MachineDropsEvent(this, entity, drops).postCustomEvent());
     }
@@ -800,7 +847,7 @@ public class MBDMachine implements IMachine, IEnhancedManaged, ICapabilityProvid
      */
     public ModularUI createUI(Player entityPlayer) {
         var ui = getDefinition().uiCreator().apply(this);
-        var event = new MachineUIEvent(this, ui);
+        var event = new MachineUIEvent(this, ui, entityPlayer);
         MinecraftForge.EVENT_BUS.post(event.postKubeJSEvent());
         ui = event.getRoot();
         if (ui == null) {
@@ -912,7 +959,7 @@ public class MBDMachine implements IMachine, IEnhancedManaged, ICapabilityProvid
                     machineFX.start();
                 }
             } else {
-                rpcToTracking("emitPhotonFx", identifier, fxLocation, offset, rotation, delay, forcedDeath);
+                rpcToTracking("emitPhotonFx", identifier, fxLocation, offset, rotation, delay, forcedDeath, replaceExisting);
             }
         }
     }

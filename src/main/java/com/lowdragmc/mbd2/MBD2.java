@@ -83,4 +83,12 @@ public class MBD2 {
     public static boolean isKubeJSLoaded() {
         return LDLib.isModLoaded("kubejs");
     }
+
+    public static boolean isAE2Loaded() {
+        return LDLib.isModLoaded("ae2");
+    }
+
+    public static boolean isEmbeddiumLoaded() {
+        return LDLib.isModLoaded("embeddium");
+    }
 }

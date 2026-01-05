@@ -112,7 +112,7 @@ public class MBDMultiblockMachine extends MBDMachine implements IMultiController
     @Override
     public void serverTick() {
         if (isFormed && !isFormedValid && getLevel() instanceof ServerLevel serverLevel) {
-            if (checkPatternWithLock()) {
+            if (checkPatternWithTryLock()) {
                 onStructureFormed();
                 var mwsd = MultiblockWorldSavedData.getOrCreate(serverLevel);
                 mwsd.addMapping(getMultiblockState());
@@ -464,7 +464,7 @@ public class MBDMultiblockMachine extends MBDMachine implements IMultiController
 
     public boolean onCatalystUsed(Player player, InteractionHand hand, ItemStack held) {
         var catalyst = getDefinition().multiblockSettings().catalyst();
-        var event = new MachineUseCatalystEvent(this, held);
+        var event = new MachineUseCatalystEvent(this, held, player, hand);
         MinecraftForge.EVENT_BUS.post(event.postCustomEvent());
         if (event.isCanceled()) {
             return false;

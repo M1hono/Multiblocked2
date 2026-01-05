@@ -29,6 +29,7 @@ import com.lowdragmc.mbd2.integration.pneumaticcraft.PNCHeatRecipeCapability;
 import com.lowdragmc.mbd2.integration.pneumaticcraft.PNCPressureAirRecipeCapability;
 import com.lowdragmc.mbd2.integration.pneumaticcraft.PressureAir;
 import com.lowdragmc.mbd2.integration.pneumaticcraft.trait.heat.PNCTemperatureCondition;
+import com.lowdragmc.mbd2.integration.pneumaticcraft.trait.pressure.PNCPressureCondition;
 import dev.latvian.mods.kubejs.fluid.FluidLike;
 import dev.latvian.mods.kubejs.fluid.FluidStackJS;
 import dev.latvian.mods.kubejs.fluid.InputFluid;
@@ -66,6 +67,7 @@ public interface MBDRecipeSchema {
         public int duration = 100;
         public int priority;
         public boolean isFuel;
+        public boolean isXEIHidden;
         // runtime
         public boolean perTick;
         @Setter
@@ -102,6 +104,12 @@ public interface MBDRecipeSchema {
 
         public MBDRecipeJS isFuel(boolean fuel) {
             isFuel = fuel;
+            save();
+            return this;
+        }
+
+        public MBDRecipeJS isXEIHidden(boolean xEIHidden) {
+            isXEIHidden = xEIHidden;
             save();
             return this;
         }
@@ -492,8 +500,19 @@ public interface MBDRecipeSchema {
             return this;
         }
 
+        @Deprecated(forRemoval = true, since = "1.21.0")
         public MBDRecipeJS dayLight(boolean isDay) {
-            addCondition(new DayLightCondition(isDay));
+            addCondition(new DayTimeCondition(isDay));
+            return this;
+        }
+
+        public MBDRecipeJS dayTime(boolean isDay) {
+            addCondition(new DayTimeCondition(isDay));
+            return this;
+        }
+
+        public MBDRecipeJS light(int minSkyLight, int maxSkyLight, int minBlockLight, int maxBlockLight, boolean canSeeSky) {
+            addCondition(new LightCondition(minSkyLight, maxSkyLight, minBlockLight, maxBlockLight, canSeeSky));
             return this;
         }
 
@@ -527,6 +546,14 @@ public interface MBDRecipeSchema {
             return this;
         }
 
+        public MBDRecipeJS pncPressureCondition(boolean isAir, float minPressure, float maxPressure) {
+            if (!MBD2.isPneumaticCraftLoaded()) {
+                throw new IllegalStateException("Try to add a pressure condition while the pneumatic is not loaded!");
+            }
+            addCondition(new PNCPressureCondition(isAir, minPressure, maxPressure));
+            return this;
+        }
+
         private MBDRecipeType getRecipeType() {
             if (recipeType == null) {
                 var recipeType = MBDRegistries.RECIPE_TYPES.get(type.schemaType.id);
@@ -552,12 +579,13 @@ public interface MBDRecipeSchema {
             duration = mbdRecipe.duration;
             priority = mbdRecipe.priority;
             isFuel = mbdRecipe.isFuel;
+            isXEIHidden = mbdRecipe.isXEIHidden;
         }
 
         @Override
         public void serialize() {
             json = MBDRecipeSerializer.SERIALIZER.toJson(
-                    new MBDRecipe(getRecipeType(), getOrCreateId(), inputs, outputs, conditions, data, duration, isFuel, priority)
+                    new MBDRecipe(getRecipeType(), getOrCreateId(), inputs, outputs, conditions, data, duration, isFuel, isXEIHidden, priority)
             );
         }
 
@@ -571,6 +599,7 @@ public interface MBDRecipeSchema {
                     data,
                     duration,
                     isFuel,
+                    isXEIHidden,
                     priority
             );
         }

@@ -7,6 +7,7 @@ import com.lowdragmc.mbd2.common.recipe.*;
 import com.lowdragmc.mbd2.integration.create.CreateRotationCondition;
 import com.lowdragmc.mbd2.integration.mekanism.MEKTemperatureCondition;
 import com.lowdragmc.mbd2.integration.pneumaticcraft.trait.heat.PNCTemperatureCondition;
+import com.lowdragmc.mbd2.integration.pneumaticcraft.trait.pressure.PNCPressureCondition;
 import net.minecraftforge.fml.ModLoader;
 
 public final class MBDRecipeConditions {
@@ -23,7 +24,8 @@ public final class MBDRecipeConditions {
         MBDRegistries.RECIPE_CONDITIONS.register(MachineLevelCondition.INSTANCE.getType(), MachineLevelCondition.class);
         MBDRegistries.RECIPE_CONDITIONS.register(MachineNBTCondition.INSTANCE.getType(), MachineNBTCondition.class);
         MBDRegistries.RECIPE_CONDITIONS.register(BlockCondition.INSTANCE.getType(), BlockCondition.class);
-        MBDRegistries.RECIPE_CONDITIONS.register(DayLightCondition.INSTANCE.getType(), DayLightCondition.class);
+        MBDRegistries.RECIPE_CONDITIONS.register(DayTimeCondition.INSTANCE.getType(), DayTimeCondition.class);
+        MBDRegistries.RECIPE_CONDITIONS.register(LightCondition.INSTANCE.getType(), LightCondition.class);
         MBDRegistries.RECIPE_CONDITIONS.register(RedstoneSignalCondition.INSTANCE.getType(), RedstoneSignalCondition.class);
         if (MBD2.isCreateLoaded()) {
             MBDRegistries.RECIPE_CONDITIONS.register(CreateRotationCondition.INSTANCE.getType(), CreateRotationCondition.class);
@@ -33,6 +35,7 @@ public final class MBDRecipeConditions {
         }
         if (MBD2.isPneumaticCraftLoaded()) {
             MBDRegistries.RECIPE_CONDITIONS.register(PNCTemperatureCondition.INSTANCE.getType(), PNCTemperatureCondition.class);
+            MBDRegistries.RECIPE_CONDITIONS.register(PNCPressureCondition.INSTANCE.getType(), PNCPressureCondition.class);
         }
         ModLoader.get().postEvent(new MBDRegistryEvent.RecipeCondition());
         MBDRegistries.RECIPE_CONDITIONS.freeze();

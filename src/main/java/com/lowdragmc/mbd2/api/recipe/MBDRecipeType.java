@@ -19,7 +19,10 @@ import com.lowdragmc.mbd2.api.capability.recipe.IO;
 import com.lowdragmc.mbd2.api.capability.recipe.IRecipeCapabilityHolder;
 import com.lowdragmc.mbd2.api.capability.recipe.RecipeCapability;
 import com.lowdragmc.mbd2.api.recipe.content.Content;
+import com.lowdragmc.mbd2.api.recipe.event.FuelRecipeUIEvent;
+import com.lowdragmc.mbd2.api.recipe.event.RecipeUIEvent;
 import com.lowdragmc.mbd2.api.recipe.event.TransferProxyRecipeEvent;
+import com.lowdragmc.mbd2.common.machine.definition.config.event.MachineUIEvent;
 import com.lowdragmc.mbd2.core.mixins.RecipeManagerAccessor;
 import com.lowdragmc.mbd2.integration.kubejs.recipe.MBDRecipeSchema;
 import com.lowdragmc.mbd2.utils.FormattingUtil;
@@ -50,6 +53,7 @@ import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -92,6 +96,10 @@ public class MBDRecipeType implements RecipeType<MBDRecipe>, ITagSerializable<Co
     @Getter
     @Configurable(name = "recipe_type.is_xei_visible", tips = "recipe_type.is_xei_visible.tooltip")
     protected boolean isXEIVisible = true;
+    @Setter
+    @Getter
+    @Configurable(name = "recipe_type.is_proxy_recipe_xei_visible", tips = "recipe_type.is_proxy_recipe_xei_visible.tooltip")
+    protected boolean isProxyRecipeXEIVisible = false;
     private final List<RecipeType<?>> proxyRecipeTypes = new ArrayList<>();
     @Getter
     protected final Map<ResourceLocation, MBDRecipe> builtinRecipes = new LinkedHashMap<>();
@@ -114,8 +122,7 @@ public class MBDRecipeType implements RecipeType<MBDRecipe>, ITagSerializable<Co
     @Getter
     private File projectFile;
     @Getter
-    private boolean isProxyRecipesLoaded = false;
-    @Getter
+    @Deprecated
     protected final Map<RecipeType<?>, List<MBDRecipe>> proxyRecipes = new HashMap<>();
 
     public MBDRecipeType(ResourceLocation registryName, RecipeType<?>... proxyRecipes) {
@@ -127,9 +134,48 @@ public class MBDRecipeType implements RecipeType<MBDRecipe>, ITagSerializable<Co
     /**
      * This method is used to clear the proxy recipes cache.
      */
-    public void clearProxyRecipesCache() {
-        isProxyRecipesLoaded = false;
+    public void onRecipeManagerLoaded(Map<RecipeType<?>, Map<ResourceLocation, Recipe<?>>> rawRecipes) {
+        // append builtin recipes
+        var recipeTypeMap = rawRecipes.computeIfAbsent(this, type -> new HashMap<>());
+        recipeTypeMap.putAll(builtinRecipes);
+
+        // load proxy recipes
         proxyRecipes.clear();
+        for (var type : proxyRecipeTypes) {
+            var recipes = new ArrayList<MBDRecipe>();
+            for (var recipe : rawRecipes.get(type).entrySet()) {
+                var mbdRecipe = toMBDrecipe(type, recipe.getKey(), recipe.getValue());
+                if (mbdRecipe != null) {
+                    recipes.add(mbdRecipe);
+                    recipeTypeMap.put(mbdRecipe.id, mbdRecipe);
+                }
+            }
+            proxyRecipes.put(type, recipes);
+        }
+    }
+
+    public void onRecipeManagerLoadedKjs(Map<ResourceLocation, Recipe<?>> recipesByName) {
+        recipesByName.putAll(builtinRecipes);
+        // load proxy recipes
+        proxyRecipes.clear();
+        var proxyRecipeTypes = new HashSet<>(this.proxyRecipeTypes);
+
+        if (proxyRecipeTypes.isEmpty()) return;
+        for (var entry : recipesByName.entrySet()) {
+            var key = entry.getKey();
+            var recipe = entry.getValue();
+            if (proxyRecipeTypes.contains(recipe.getType())) {
+                var mbdRecipe = toMBDrecipe(recipe.getType(), key, recipe);
+                if (mbdRecipe != null) {
+                    proxyRecipes.computeIfAbsent(recipe.getType(), type -> new ArrayList<>()).add(mbdRecipe);
+                }
+            }
+        }
+        for (List<MBDRecipe> recipes : proxyRecipes.values()) {
+            for (MBDRecipe recipe : recipes) {
+                recipesByName.put(recipe.getId(), recipe);
+            }
+        }
     }
 
     public static MBDRecipeType createDefault() {
@@ -215,21 +261,7 @@ public class MBDRecipeType implements RecipeType<MBDRecipe>, ITagSerializable<Co
         return new ResourceLocation(registryName.getNamespace(), registryName.getPath() + ".fuel");
     }
 
-    private void loadProxyRecipes(RecipeManager recipeManager) {
-        isProxyRecipesLoaded = true;
-        proxyRecipes.clear();
-        for (var type : proxyRecipeTypes) {
-            var recipes = new ArrayList<MBDRecipe>();
-            for (var recipe : ((RecipeManagerAccessor)recipeManager).getRawRecipes().get(type).entrySet()) {
-                var mbdRecipe = toMBDrecipe(type, recipe.getKey(), recipe.getValue());
-                if (mbdRecipe != null) recipes.add(mbdRecipe);
-            }
-            proxyRecipes.put(type, recipes);
-        }
-    }
-
     public List<MBDRecipe> searchFuelRecipe(RecipeManager recipeManager, IRecipeCapabilityHolder holder) {
-        if (!isProxyRecipesLoaded) loadProxyRecipes(recipeManager);
         if (!holder.hasProxies() || !isRequireFuelForWorking()) return Collections.emptyList();
         List<MBDRecipe> matches = new ArrayList<>();
         for (MBDRecipe recipe : recipeManager.getAllRecipesFor(this)) {
@@ -242,17 +274,10 @@ public class MBDRecipeType implements RecipeType<MBDRecipe>, ITagSerializable<Co
     }
 
     public List<MBDRecipe> searchRecipe(RecipeManager recipeManager, IRecipeCapabilityHolder holder) {
-        if (!isProxyRecipesLoaded) loadProxyRecipes(recipeManager);
         if (!holder.hasProxies()) return Collections.emptyList();
         List<MBDRecipe> matches = recipeManager.getAllRecipesFor(this).parallelStream()
                 .filter(recipe -> !recipe.isFuel && recipe.matchRecipe(holder).isSuccess() && recipe.matchTickRecipe(holder).isSuccess())
                 .collect(Collectors.toList());
-        for (List<MBDRecipe> recipes : proxyRecipes.values()) {
-            var found = recipes.parallelStream()
-                    .filter(recipe -> !recipe.isFuel && recipe.matchRecipe(holder).isSuccess() && recipe.matchTickRecipe(holder).isSuccess())
-                    .toList();
-            matches.addAll(found);
-        }
         matches.sort(Comparator.comparingInt(r -> r.priority));
         return matches;
     }
@@ -312,7 +337,8 @@ public class MBDRecipeType implements RecipeType<MBDRecipe>, ITagSerializable<Co
             result = copied;
         } else {
             if (!recipe.getIngredients().isEmpty()) {
-                var builder = recipeBuilder(id).recipeType(this);
+                var newID = new ResourceLocation(registryName.getNamespace(), registryName.getPath() + "/" + id.getPath());
+                var builder = recipeBuilder(newID).recipeType(this);
                 for (var ingredient : recipe.getIngredients()) {
                     builder.inputItems(ingredient);
                 }
@@ -320,7 +346,8 @@ public class MBDRecipeType implements RecipeType<MBDRecipe>, ITagSerializable<Co
                 if (recipe instanceof SmeltingRecipe smeltingRecipe) {
                     builder.duration(smeltingRecipe.getCookingTime());
                 }
-                result =  builder.buildRawRecipe();
+                builder.isXEIHidden(!isProxyRecipeXEIVisible);
+                result = builder.buildRawRecipe();
             }
         }
         var proxyTypeId = ForgeRegistries.RECIPE_TYPES.getKey(recipeType);
@@ -424,7 +451,7 @@ public class MBDRecipeType implements RecipeType<MBDRecipe>, ITagSerializable<Co
         values.forEach((cap, contents) -> {
             for (int i = 0; i < contents.size(); i++) {
                 var content = contents.get(i);
-                var id = content.uiName.isEmpty() ? "^@%s_%s_%d$".formatted(cap.name, io.name, i) : content.uiName;
+                var id = content.uiName.isEmpty() ? "^@%s_%s_%d$".formatted(cap.name, io.name, i) : Pattern.quote(content.uiName);
                 for (var widget : WidgetUtils.getWidgetsById(ui, id)) {
                     cap.bindXEIWidget(widget, content, switch (io) {
                         case IN -> IngredientIO.INPUT;
@@ -440,5 +467,19 @@ public class MBDRecipeType implements RecipeType<MBDRecipe>, ITagSerializable<Co
                 }
             }
         });
+    }
+
+    public WidgetGroup createRecipeUI(MBDRecipe recipe) {
+        var ui = uiCreator.create(recipe);
+        var event = new RecipeUIEvent(this, recipe, ui);
+        MinecraftForge.EVENT_BUS.post(event.postKubeJSEvent());
+        return event.getRoot().setClientSideWidget();
+    }
+
+    public WidgetGroup createFuelUI(MBDRecipe recipe) {
+        var ui = fuelUICreator.create(recipe);
+        var event = new FuelRecipeUIEvent(this, recipe, ui);
+        MinecraftForge.EVENT_BUS.post(event.postKubeJSEvent());
+        return event.getRoot().setClientSideWidget();
     }
 }
